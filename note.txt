@@ -1,0 +1,6 @@
+building from base template:
+
+http://www.paulkiddie.com/2009/10/creating-a-hello-world-kernel-module-in-linux/
+
+http://www.paulkiddie.com/2009/10/creating-a-simple-hello-world-netfilter-module/
+
