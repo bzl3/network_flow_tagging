@@ -1,6 +1,3 @@
-//'Hello World' netfilter hooks example
-//For any packet, we drop it, and log fact to /var/log/messages
-
 //#undef __KERNEL__
 #include <linux/netfilter_ipv4.h>
 //#define __KERNEL__
@@ -9,8 +6,11 @@
 #include <linux/module.h>
 #include <linux/netfilter.h>
 #include <linux/ip.h>
+#include <linux/udp.h>
+#include <linux/tcp.h>
+#include <linux/if_ether.h>
 
-#if 0
+#if 0 // struct field for reference
 /*
   #define NF_DROP 0
   #define NF_ACCEPT 1
@@ -57,28 +57,49 @@ struct iphdr {
 udphdr/tcphdr   check ip->protocol
 #endif
 
-static struct nf_hook_ops nfho;         //struct holding set of hook function options
+//struct holding set of hook function options
+static struct nf_hook_ops nfho;
 
 //function to be called by hook
-unsigned int hook_func(unsigned int hooknum, struct sk_buff *skb, const struct net_device *in,
-                       const struct net_device *out, int (*okfn)(struct sk_buff *))
+unsigned int hook_in_packet(unsigned int hooknum, struct sk_buff *skb,
+                            const struct net_device *in,
+                            const struct net_device *out,
+                            int (*okfn)(struct sk_buff *))
 {
-   struct iphdr * ip_header;
-   struct ethhdr * eth_header;
+   struct iphdr *ip_header;
+   struct ethhdr *eth_header;
+   struct udphdr *udp_header;
+   struct tcphdr *tcp_header;
    unsigned int src_ip;
    unsigned int dest_ip;
+   unsigned int src_port = 0;
+   unsigned int dest_port = 0;
 
-   printk(KERN_INFO "packet Received!!!!!!!!\n");      //log to var/log/messages
+   printk(KERN_INFO "packet Received!!!!!!!!\n");
 
    ip_header = (struct iphdr *)skb_network_header(skb);   
-//   eth_header = (struct ethhdr *)skb_mac_header(skb);
-//                   skb_transport_header(skb);
+   eth_header = (struct ethhdr *)skb_mac_header(skb);
 
    src_ip = (unsigned int)ip_header->saddr;
    dest_ip = (unsigned int)ip_header->daddr;
 
-   printk(KERN_INFO "src_ip = 0x%x     protocol = %d \n", src_ip, ip_header->protocol);
+   if (ip_header->protocol==17) 
+   {
+       // UDP
+      udp_header = (struct udphdr *)skb_transport_header(skb);
+      src_port = (unsigned int)ntohs(udp_header->source);
+      dest_port = (unsigned int)ntohs(udp_header->dest);
+   }
+   else if (ip_header->protocol == 6) 
+   {
+      // TCP
+      tcp_header = (struct tcphdr *)skb_transport_header(skb);
+      src_port = (unsigned int)ntohs(tcp_header->source);
+      dest_port = (unsigned int)ntohs(tcp_header->dest);
+   }
 
+
+   printk(KERN_INFO "src_ip = 0x%x   src_port = %u    dest_port = %u    protocol = %d \n", src_ip, src_port, dest_port, ip_header->protocol);
 
 
    return NF_ACCEPT;                                   //drops the packet
@@ -87,19 +108,21 @@ unsigned int hook_func(unsigned int hooknum, struct sk_buff *skb, const struct n
 //Called when module loaded using 'insmod'
 int init_module()
 {
-   nfho.hook = hook_func;                       //function to call when conditions below met
-//  nfho.hooknum = NF_IP_PRE_ROUTING;            //called right after packet recieved, first hook in Netfilter
+   nfho.hook = hook_in_packet;
+   //called right after packet recieved, first hook in Netfilter
    nfho.hooknum = NF_INET_PRE_ROUTING;
-   nfho.pf = PF_INET;                           //IPV4 packets
-   nfho.priority = NF_IP_PRI_FIRST;             //set to highest priority over all other hook functions
-   nf_register_hook(&nfho);                     //register hook
+   nfho.pf = PF_INET;
+   //set to highest priority over all other hook functions
+   nfho.priority = NF_IP_PRI_FIRST;
+   nf_register_hook(&nfho);
 
-   return 0;                                    //return 0 for success
+   return 0;
 }
 
 //Called when module unloaded using 'rmmod'
 void cleanup_module()
 {
-   nf_unregister_hook(&nfho);                     //cleanup – unregister hook
+   //cleanup – unregister hook
+   nf_unregister_hook(&nfho); 
 }
 
