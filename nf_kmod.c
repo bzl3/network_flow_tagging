@@ -10,6 +10,8 @@
 #include <linux/tcp.h>
 #include <linux/if_ether.h>
 
+#define CASSANDRA_SERVER_PORT    9042
+
 #if 0 // struct field for reference
 /*
   #define NF_DROP 0
@@ -57,6 +59,26 @@ struct iphdr {
 udphdr/tcphdr   check ip->protocol
 #endif
 
+/***************************************************************
+ * Cassandra header for reference
+ *
+ *      0         8        16        24        32         40
+ *     +---------+---------+---------+---------+---------+
+ *     | version |  flags  |      stream       | opcode  |
+ *     +---------+---------+---------+---------+---------+
+ *     |                length                 |
+ *     +---------+---------+---------+---------+
+ *     |                                       |
+ *     .            ...  body ...              .
+ *     .                                       .
+ *     .                                       .
+ *     +----------------------------------------
+ *
+ * The protocol is big-endian (network byte order).
+
+ ***************************************************************/
+
+
 //struct holding set of hook function options
 static struct nf_hook_ops nfho;
 
@@ -74,14 +96,13 @@ unsigned int hook_in_packet(unsigned int hooknum, struct sk_buff *skb,
    unsigned int dest_ip;
    unsigned int src_port = 0;
    unsigned int dest_port = 0;
-
-   printk(KERN_INFO "packet Received!!!!!!!!\n");
+   char * data = 0;
 
    ip_header = (struct iphdr *)skb_network_header(skb);   
    eth_header = (struct ethhdr *)skb_mac_header(skb);
 
-   src_ip = (unsigned int)ip_header->saddr;
-   dest_ip = (unsigned int)ip_header->daddr;
+   src_ip = ntohl((unsigned int)ip_header->saddr);
+   dest_ip = ntohl((unsigned int)ip_header->daddr);
 
    if (ip_header->protocol==17) 
    {
@@ -98,12 +119,41 @@ unsigned int hook_in_packet(unsigned int hooknum, struct sk_buff *skb,
       dest_port = (unsigned int)ntohs(tcp_header->dest);
    }
 
+#ifdef MORE_DEBUG
+   printk( KERN_INFO "Received packet from\n\tsrc_ip = 0x%x\n\tsrc_port = %u\n\tdest_port = %u\n\tprotocol = %d \n\th_proto (eth_hdr) = %u\n",
+          src_ip, src_port, dest_port, (unsigned int)ntohs(ip_header->protocol), (unsigned int)ntohs(eth_header->h_proto));
+#endif
 
-   printk(KERN_INFO "src_ip = 0x%x   src_port = %u    dest_port = %u    protocol = %d \n", src_ip, src_port, dest_port, ip_header->protocol);
+   if ( CASSANDRA_SERVER_PORT == dest_port )
+   {
+      // TODO Explore cassandra header and insert tagging mechinism here
+      printk( KERN_INFO "# Received CASSANDRA REQUEST!\n");
+      data = skb->data;
+      printk( KERN_INFO "Hex dumping first 9 bytes:\n");
+      printk( KERN_INFO " :0\t%2x %2x  %2x %2x\n", (unsigned char)data[0], (unsigned char)data[1], (unsigned char)data[2], (unsigned char)data[3]);
+      printk( KERN_INFO " :4\t%2x %2x  %2x %2x\n", (unsigned char)data[4], (unsigned char)data[5], (unsigned char)data[6], (unsigned char)data[7]);
+      printk( KERN_INFO " :0\t%2x\n", (unsigned char)data[9]);
+   }
+   else if ( CASSANDRA_SERVER_PORT == src_port )
+   {
+      // TODO Explore cassandra header and insert tagging mechinism here
+      printk( KERN_INFO "# Received CASSANDRA RSP~~~~~~~~~~~~~~\n");
+      data = skb->data;
+      printk( KERN_INFO "Hex dumping first 9 bytes:\n");
+      printk( KERN_INFO " :0\t%2x %2x  %2x %2x\n", (unsigned char)data[0], (unsigned char)data[1], (unsigned char)data[2], (unsigned char)data[3]);
+      printk( KERN_INFO " :4\t%2x %2x  %2x %2x\n", (unsigned char)data[4], (unsigned char)data[5], (unsigned char)data[6], (unsigned char)data[7]);
+      printk( KERN_INFO " :0\t%2x\n", (unsigned char)data[9]);
+   }
+   else { /* can add other application port here to check */ }
 
+#ifdef MORE_DEBUG
+   printk( KERN_INFO "\n");
+#endif 
 
-   return NF_ACCEPT;                                   //drops the packet
+   // Accept everything
+   return NF_ACCEPT;
 }
+
 
 //Called when module loaded using 'insmod'
 int init_module()
@@ -116,12 +166,15 @@ int init_module()
    nfho.priority = NF_IP_PRI_FIRST;
    nf_register_hook(&nfho);
 
+   printk( KERN_INFO "Registering PRE_ROUTING Netfilter hook!\n");
    return 0;
 }
+
 
 //Called when module unloaded using 'rmmod'
 void cleanup_module()
 {
+   printk( KERN_INFO "Unregistering PRE_ROUTING Netfilter hook!\n");
    //cleanup – unregister hook
    nf_unregister_hook(&nfho); 
 }
