@@ -11,6 +11,7 @@
 #include <linux/if_ether.h>
 
 #define CASSANDRA_SERVER_PORT    9042
+#define CASSANDRA_HEADER_OFFSET  66
 
 #if 0 // struct field for reference
 /*
@@ -78,6 +79,17 @@ udphdr/tcphdr   check ip->protocol
 
  ***************************************************************/
 
+// Cassandra header, header is not packed, packed here
+// TODO Check my endianess!!
+struct cassandra_hdr {
+   __u8    version;
+   __u8    flags;
+   __be16  stream;
+   __u8    opcode;
+   __be32  length;
+   __u8    padding[3];
+};
+
 
 //struct holding set of hook function options
 static struct nf_hook_ops nfho;
@@ -92,11 +104,12 @@ unsigned int hook_in_packet(unsigned int hooknum, struct sk_buff *skb,
    struct ethhdr *eth_header;
    struct udphdr *udp_header;
    struct tcphdr *tcp_header;
+   struct cassandra_hdr *ca_header;
    unsigned int src_ip;
    unsigned int dest_ip;
    unsigned int src_port = 0;
    unsigned int dest_port = 0;
-   char * data = 0;
+   unsigned char * data = 0;
 
    ip_header = (struct iphdr *)skb_network_header(skb);   
    eth_header = (struct ethhdr *)skb_mac_header(skb);
@@ -128,21 +141,46 @@ unsigned int hook_in_packet(unsigned int hooknum, struct sk_buff *skb,
    {
       // TODO Explore cassandra header and insert tagging mechinism here
       printk( KERN_INFO "# Received CASSANDRA REQUEST!\n");
-      data = skb->data;
+      //ca_header = (struct cassandra_hdr *) skb->data;
+      // try magic number 66
+      ca_header = ((unsigned char*)skb_mac_header(skb)) + CASSANDRA_HEADER_OFFSET;
+
+      // printk(KERN_INFO "MAC: 0x%p          ca_hdr: 0x%p\n", eth_header, ca_header);
+      printk( KERN_INFO "Cassandra header: version: 0x%x   flags: 0x%x   stream: 0x%x    opcode: 0x%x    length: 0x%x\n",
+              (unsigned short)(ca_header->version), (unsigned short)(ca_header->flags),
+              (unsigned short)(ca_header->stream), (unsigned short)(ca_header->opcode),
+              (unsigned int)(ca_header->length));
+
+      data = ((unsigned char*)skb_mac_header(skb)) + 66;
+/*
       printk( KERN_INFO "Hex dumping first 9 bytes:\n");
       printk( KERN_INFO " :0\t%2x %2x  %2x %2x\n", (unsigned char)data[0], (unsigned char)data[1], (unsigned char)data[2], (unsigned char)data[3]);
       printk( KERN_INFO " :4\t%2x %2x  %2x %2x\n", (unsigned char)data[4], (unsigned char)data[5], (unsigned char)data[6], (unsigned char)data[7]);
-      printk( KERN_INFO " :0\t%2x\n", (unsigned char)data[9]);
+      printk( KERN_INFO " :8\t%2x %2x  %2x %2x\n", (unsigned char)data[8], (unsigned char)data[9], (unsigned char)data[10], (unsigned char)data[11]);
+*/
    }
    else if ( CASSANDRA_SERVER_PORT == src_port )
    {
       // TODO Explore cassandra header and insert tagging mechinism here
       printk( KERN_INFO "# Received CASSANDRA RSP~~~~~~~~~~~~~~\n");
-      data = skb->data;
+      // ca_header = (struct cassandra_hdr *) skb->data;
+      ca_header = ((unsigned char*)skb_mac_header(skb)) + CASSANDRA_HEADER_OFFSET;
+
+      printk( KERN_INFO "Cassandra header: version: 0x%x   flags: 0x%x   stream: 0x%x    opcode: 0x%x    length: 0x%x\n",
+              (unsigned short)(ca_header->version), (unsigned short)(ca_header->flags),
+              (unsigned short)(ca_header->stream), (unsigned short)(ca_header->opcode),
+              (unsigned int)(ca_header->length));
+
+
+
+      data = ((unsigned char*)skb_mac_header(skb)) + 66;
+/*
       printk( KERN_INFO "Hex dumping first 9 bytes:\n");
       printk( KERN_INFO " :0\t%2x %2x  %2x %2x\n", (unsigned char)data[0], (unsigned char)data[1], (unsigned char)data[2], (unsigned char)data[3]);
       printk( KERN_INFO " :4\t%2x %2x  %2x %2x\n", (unsigned char)data[4], (unsigned char)data[5], (unsigned char)data[6], (unsigned char)data[7]);
-      printk( KERN_INFO " :0\t%2x\n", (unsigned char)data[9]);
+      printk( KERN_INFO " :8\t%2x %2x  %2x %2x\n", (unsigned char)data[8], (unsigned char)data[9], (unsigned char)data[10], (unsigned char)data[11]);
+*/
+
    }
    else { /* can add other application port here to check */ }
 
